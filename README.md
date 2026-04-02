@@ -1,6 +1,6 @@
 # Cyphercon9 Badge Firmware
 
-MicroPython firmware for the Cyphercon9 conference badge, running on a Raspberry Pi Pico with an SX1262 LoRa radio, 132x32 LCD display, 6 red LEDs, buttons, and a vibration motor.
+MicroPython firmware for the Cyphercon9 conference badge, running on a Raspberry Pi Pico with a 132x32 LCD display, 6 red LEDs, buttons, and a vibration motor.
 
 ## Updating the Badge
 
@@ -33,7 +33,6 @@ screen /dev/cu.usbmodem101
 - **Display**: 132x32 pixel LCD (SPI) with character/glyph rendering
 - **LEDs**: 7 total (1 Pico onboard LED + 6 external red LEDs) with rotation, pulse, and chase animations
 - **Buttons**: Social button + two 3-way switch groups (up/down/push each)
-- **Radio**: SX1262 LoRa for badge-to-badge communication
 - **IR**: 38kHz IR transmitter via PIO state machine
 - **Vibration motor**: For notifications
 
@@ -61,6 +60,57 @@ screen /dev/cu.usbmodem101
 - **alias_memory**: Contact names (676 entries x 16 bytes)
 - **social_memory**: Tracks which badges you've encountered
 - **inbox_memory**: Received messages with unread tracking
+
+## CLI Tool (`badge-cli.py`)
+
+An interactive command-line tool for controlling the badge over USB serial from your computer.
+
+### Setup
+
+```bash
+pip install pyserial
+```
+
+### Usage
+
+```bash
+# Interactive mode (auto-detects serial port)
+python badge-cli.py
+
+# Specify port manually
+python badge-cli.py -p /dev/cu.usbmodem101
+
+# Single command mode (for scripting)
+python badge-cli.py -c "BC:hello world"
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `broadcast <message>` | Send a broadcast message over IR (16 chars max) |
+| `page <badge_id> <message>` | Send a direct message to a specific badge |
+| `inbox` | List all inbox messages (shows read/unread status and type) |
+| `mark-read` | Mark all inbox messages as read |
+| `status` | Show badge serial number, type, alias, and unread count |
+| `alias` | Show current alias |
+| `alias <name>` | Set a new alias (16 chars max) |
+| `idle <top> \| <bottom>` | Set custom idle display text (use `\|` to separate top and bottom lines) |
+| `reset-idle` | Reset idle display to default animation |
+| `help` | Show available commands |
+| `quit` | Exit the CLI |
+
+### Custom Idle Display
+
+When a custom idle message is set, the top line shows your text and the bottom line shows the second text. An up-arrow animation sweeps across the top row whenever the badge has messages queued for transmission.
+
+Reset to the default scrolling animation and Cyphercon9 logo with `reset-idle`.
+
+### Notes
+
+- The CLI auto-detects the badge's USB serial port (looks for `usbmodem` or `acm` devices)
+- Debug output from the badge is shown with a `[debug]` prefix
+- Only one program can use the serial port at a time — quit `screen` before using the CLI
 
 ## Changes in This Branch (`input_refactor`)
 

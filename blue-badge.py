@@ -13,6 +13,11 @@ import rp2
 import utime
 import random
 import gc
+import sys
+try:
+    import select
+except ImportError:
+    select = None
 
 ##
 #	CHARACTER MAPS
@@ -1472,6 +1477,10 @@ def led_all_off():
     for i in range(0, 7):
         led_set(i, 0)
 
+def led_all_on():
+    for i in range(0, 7):
+        led_set(i, 1)
+
 def led_get(led_index): # red leds low=on | pico low=off
     global LED0, LED1, LED2, LED3, LED4, LED5, LED6
     if led_index == 0: # pico led
@@ -1732,15 +1741,19 @@ def mode_init(mode_index):
             idle_init()
     elif mode_index == 1:
         mode = 1
+        led_all_off()
         alias_init()
     elif mode_index == 2:
         mode = 2
+        led_all_off()
         inbox_init()
     elif mode_index == 3:
         mode = 3
+        led_all_off()
         compose_1_init()
     elif mode_index == 4:
         mode = 4
+        led_all_off()
         compose_2_init()
 
 ##
@@ -1750,70 +1763,78 @@ def mode_init(mode_index):
 idle_scroll = bytearray(16)
 you_have_got_mail = 0
 
-# idle light show state: 0=clockwise, 1=counter-clockwise, 2=off
+# idle light show state: 0=blink on, 1=blink off, 2=wait
 idle_light_state = 0
-idle_light_step = 0
 idle_light_last_ms = 0
-IDLE_LIGHT_CHASE_STEPS = 12  # number of rotate steps per direction
-IDLE_LIGHT_CHASE_DELAY = 150  # ms between chase steps
-IDLE_LIGHT_OFF_DURATION = 20000  # ms to stay off
+IDLE_LIGHT_BLINK_ON = 200   # ms LEDs stay on during blink
+IDLE_LIGHT_BLINK_OFF = 200  # ms LEDs stay off between blinks
+IDLE_LIGHT_BLINK_COUNT = 3  # number of blinks before wait
+IDLE_LIGHT_WAIT = 20000     # ms to wait after blinks
+idle_light_blinks = 0
 
 def idle_light_show_init():
-    global idle_light_state, idle_light_step, idle_light_last_ms
+    global idle_light_state, idle_light_last_ms, idle_light_blinks
     idle_light_state = 0
-    idle_light_step = 0
+    idle_light_blinks = 0
     idle_light_last_ms = utime.ticks_ms()
     led_all_off()
-    led_set(6, 1)
 
 def idle_light_show():
-    global idle_light_state, idle_light_step, idle_light_last_ms
+    global idle_light_state, idle_light_last_ms, idle_light_blinks
     now = utime.ticks_ms()
-    if idle_light_state == 0:  # clockwise chase
-        if utime.ticks_diff(now, idle_light_last_ms) >= IDLE_LIGHT_CHASE_DELAY:
+    if idle_light_state == 0:  # blink on
+        if utime.ticks_diff(now, idle_light_last_ms) >= IDLE_LIGHT_BLINK_OFF:
             idle_light_last_ms = now
-            led_rotate()
-            idle_light_step += 1
-            if idle_light_step >= IDLE_LIGHT_CHASE_STEPS:
-                idle_light_step = 0
-                idle_light_state = 1
-    elif idle_light_state == 1:  # counter-clockwise chase
-        if utime.ticks_diff(now, idle_light_last_ms) >= IDLE_LIGHT_CHASE_DELAY:
-            idle_light_last_ms = now
-            led_rotate_ccw()
-            idle_light_step += 1
-            if idle_light_step >= IDLE_LIGHT_CHASE_STEPS:
-                idle_light_step = 0
-                idle_light_state = 2
-                led_all_off()
-                idle_light_last_ms = now
-    elif idle_light_state == 2:  # off period
-        if utime.ticks_diff(now, idle_light_last_ms) >= IDLE_LIGHT_OFF_DURATION:
-            idle_light_state = 0
-            idle_light_step = 0
+            led_all_on()
+            idle_light_state = 1
+    elif idle_light_state == 1:  # blink off
+        if utime.ticks_diff(now, idle_light_last_ms) >= IDLE_LIGHT_BLINK_ON:
             idle_light_last_ms = now
             led_all_off()
-            led_set(6, 1)
+            idle_light_blinks += 1
+            if idle_light_blinks >= IDLE_LIGHT_BLINK_COUNT:
+                idle_light_blinks = 0
+                idle_light_state = 2
+            else:
+                idle_light_state = 0
+    elif idle_light_state == 2:  # wait
+        if utime.ticks_diff(now, idle_light_last_ms) >= IDLE_LIGHT_WAIT:
+            idle_light_state = 0
+            idle_light_last_ms = now
 
 def idle_init():
     global idle_scroll
     idle_mail_check()
     idle_light_show_init()
     set_top_text("")
-    set_bottom_text("      Cyphercon9")
-    bottom_blit(22, 0)
-    bottom_blit(23, 1)
-    bottom_blit(24, 2)
-    bottom_blit(25, 3)
-    bottom_blit(26, 4)
+    if custom_idle_top is not None:
+        set_bottom_text(custom_idle_bottom if custom_idle_bottom else "")
+    else:
+        set_bottom_text("      Cyphercon9")
+        bottom_blit(22, 0)
+        bottom_blit(23, 1)
+        bottom_blit(24, 2)
+        bottom_blit(25, 3)
+        bottom_blit(26, 4)
 
 def idle_animate():
-    global idle_scroll, you_have_got_mail
+    global idle_scroll, you_have_got_mail, custom_idle_top, custom_idle_bottom
+    # shift scroll buffer left; arrows injected by tx()/handle() appear at pos 15
+    # and naturally scroll across from right to left
     for i in range(0, 15):
         idle_scroll[i] = idle_scroll[i + 1]
-        top_blit(idle_scroll[i], i)
     idle_scroll[15] = 0
-    top_blit(idle_scroll[15], 15)
+    # render: custom top text with scroll overlay, or plain scroll
+    if custom_idle_top is not None:
+        set_top_text(custom_idle_top)
+        set_bottom_text(custom_idle_bottom if custom_idle_bottom else "")
+        # overlay any non-zero scroll entries (arrows) on top of custom text
+        for i in range(0, 16):
+            if idle_scroll[i] != 0:
+                top_blit(idle_scroll[i], i)
+    else:
+        for i in range(0, 16):
+            top_blit(idle_scroll[i], i)
     menu_blit(random.getrandbits(4), random.getrandbits(4), random.getrandbits(1))
     if you_have_got_mail > 0:
         led_rotate()
@@ -2119,6 +2140,159 @@ def increment_queue_count(queue_id, entry_index):
     if DEBUG == True: print("*** increment_queue_count: queue_id " + str(queue_id) + " entry_index " + str(entry_index) + " entry_count now " + str(entry_count))
 
 ##
+#	USB Serial Command Interface
+##
+
+usb_poll = None
+usb_cmd_buf = ""
+custom_idle_top = None
+custom_idle_bottom = None
+
+try:
+    usb_poll = select.poll()
+    usb_poll.register(sys.stdin, select.POLLIN)
+except:
+    usb_poll = None
+
+def usb_cmd_step():
+    global usb_cmd_buf
+    if usb_poll is None:
+        return
+    try:
+        if usb_poll.poll(0):
+            ch = sys.stdin.read(1)
+            if ch is None:
+                return
+            if ch == '\n' or ch == '\r':
+                if usb_cmd_buf:
+                    usb_cmd_parse(usb_cmd_buf.strip())
+                    usb_cmd_buf = ""
+            else:
+                usb_cmd_buf += ch
+    except:
+        pass
+
+def usb_cmd_parse(line):
+    global custom_idle_top, custom_idle_bottom, alias
+    parts = line.split(":", 2)
+    cmd = parts[0].upper()
+
+    if cmd == "BC" and len(parts) >= 2:
+        # Broadcast message: BC:message_text
+        msg = parts[1][:16]
+        body = text_to_array(msg)
+        add_queue_entry(0, 0, 4, 0, serial, body)
+        tx_broadcast(0, serial, alias, body)
+        print("RSP:OK:BC:" + msg)
+
+    elif cmd == "PG" and len(parts) >= 3:
+        # Page message: PG:badge_id:message_text
+        try:
+            target = int(parts[1])
+        except ValueError:
+            print("RSP:ERR:invalid badge id")
+            return
+        msg = parts[2][:16]
+        body = text_to_array(msg)
+        add_queue_entry(0, 0, 3, target, serial, body)
+        print("RSP:OK:PG:" + str(target) + ":" + msg)
+
+    elif cmd == "INBOX":
+        # List inbox: INBOX
+        last = read_inbox_last()
+        count = 0
+        for i in range(0, 32):
+            entry_unread, entry_event_id, entry_from_index, entry_to_index, entry_text = read_inbox_memory(i)
+            if entry_unread == 1 or entry_unread == 2:
+                from_alias = read_alias_memory(entry_from_index)
+                alias_str = ""
+                for b in range(0, 16):
+                    c = from_alias[b]
+                    if c >= 32 and c < 127:
+                        alias_str += chr(c)
+                text_str = ""
+                for b in range(0, 16):
+                    c = entry_text[b]
+                    if c >= 32 and c < 127:
+                        text_str += chr(c)
+                status = "unread" if entry_unread == 1 else "read"
+                etype = "broadcast" if entry_event_id == 4 else "page"
+                print("RSP:MSG:" + str(i) + ":" + status + ":" + etype + ":" + str(entry_from_index) + ":" + alias_str + ":" + text_str)
+                count += 1
+        print("RSP:OK:INBOX:" + str(count))
+
+    elif cmd == "STATUS":
+        # Badge status: STATUS
+        alias_str = ""
+        for b in range(0, 16):
+            c = alias[b]
+            if c >= 32 and c < 127:
+                alias_str += chr(c)
+        print("RSP:OK:STATUS:" + str(serial) + ":" + str(badge_type) + ":" + alias_str + ":" + str(you_have_got_mail))
+
+    elif cmd == "IDLE" and len(parts) >= 3:
+        # Set custom idle text: IDLE:top_text:bottom_text (centered)
+        top_raw = parts[1][:16].strip()
+        bot_raw = parts[2][:16].strip()
+        top_pad = (16 - len(top_raw)) // 2
+        bot_pad = (16 - len(bot_raw)) // 2
+        custom_idle_top = (" " * top_pad) + top_raw
+        custom_idle_bottom = (" " * bot_pad) + bot_raw
+        if mode == 0:
+            set_top_text(custom_idle_top)
+            set_bottom_text(custom_idle_bottom)
+            menu_clear()
+            flip()
+        print("RSP:OK:IDLE")
+
+    elif cmd == "RESETIDLE":
+        # Reset to normal idle: RESETIDLE
+        custom_idle_top = None
+        custom_idle_bottom = None
+        if mode == 0:
+            idle_init()
+        print("RSP:OK:RESETIDLE")
+
+    elif cmd == "ALIAS" and len(parts) >= 2:
+        # Set alias: ALIAS:new_name
+        new_name = parts[1][:16]
+        alias = text_to_array(new_name)
+        write_alias_memory(serial, alias)
+        print("RSP:OK:ALIAS:" + new_name)
+
+    elif cmd == "ALIAS":
+        # Get alias: ALIAS
+        alias_str = ""
+        for b in range(0, 16):
+            c = alias[b]
+            if c >= 32 and c < 127:
+                alias_str += chr(c)
+        print("RSP:OK:GETALIAS:" + alias_str)
+
+    elif cmd == "MARKREAD":
+        # Mark all inbox messages as read: MARKREAD
+        count = 0
+        for i in range(0, 32):
+            if read_inbox_unread(i) == 1:
+                write_inbox_unread(i, 2)
+                count += 1
+        you_have_got_mail = 0
+        print("RSP:OK:MARKREAD:" + str(count))
+
+    elif cmd == "HELP":
+        print("RSP:HELP:BC:message - broadcast")
+        print("RSP:HELP:PG:id:message - page badge")
+        print("RSP:HELP:INBOX - list messages")
+        print("RSP:HELP:MARKREAD - mark all read")
+        print("RSP:HELP:STATUS - badge info")
+        print("RSP:HELP:IDLE:top:bottom - set display")
+        print("RSP:HELP:RESETIDLE - normal idle")
+        print("RSP:HELP:ALIAS:name - set alias")
+
+    else:
+        print("RSP:ERR:unknown command: " + line)
+
+##
 #	Init
 ##
 
@@ -2158,7 +2332,7 @@ def init():
 #	Main Entry
 ##
 
-DEBUG = True
+DEBUG = False
 
 init()
 
@@ -2167,4 +2341,5 @@ while True:
     ui_handler()
     mode_handler()
     network_step()
+    usb_cmd_step()
     if random.getrandbits(2) == 0: queue_step()
