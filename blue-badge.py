@@ -2147,6 +2147,7 @@ usb_poll = None
 usb_cmd_buf = ""
 custom_idle_top = None
 custom_idle_bottom = None
+inbox_slot_map = []  # maps display number -> real inbox slot index
 
 try:
     usb_poll = select.poll()
@@ -2199,7 +2200,8 @@ def usb_cmd_parse(line):
 
     elif cmd == "INBOX":
         # List inbox: INBOX
-        last = read_inbox_last()
+        # Build slot map so DEL can use display numbers
+        inbox_slot_map.clear()
         count = 0
         for i in range(0, 32):
             entry_unread, entry_event_id, entry_from_index, entry_to_index, entry_text = read_inbox_memory(i)
@@ -2217,7 +2219,8 @@ def usb_cmd_parse(line):
                         text_str += chr(c)
                 status = "unread" if entry_unread == 1 else "read"
                 etype = "broadcast" if entry_event_id == 4 else "page"
-                print("RSP:MSG:" + str(i) + ":" + status + ":" + etype + ":" + str(entry_from_index) + ":" + alias_str + ":" + text_str)
+                print("RSP:MSG:" + str(count) + ":" + status + ":" + etype + ":" + str(entry_from_index) + ":" + alias_str + ":" + text_str)
+                inbox_slot_map.append(i)
                 count += 1
         print("RSP:OK:INBOX:" + str(count))
 
@@ -2279,11 +2282,29 @@ def usb_cmd_parse(line):
         you_have_got_mail = 0
         print("RSP:OK:MARKREAD:" + str(count))
 
+    elif cmd == "DEL" and len(parts) >= 2:
+        # Delete message by display number: DEL:number
+        try:
+            display_idx = int(parts[1])
+        except ValueError:
+            print("RSP:ERR:invalid index")
+            return
+        if display_idx < 0 or display_idx >= len(inbox_slot_map):
+            print("RSP:ERR:index out of range (run inbox first)")
+            return
+        slot = inbox_slot_map[display_idx]
+        write_inbox_unread(slot, 0)
+        idle_mail_check()
+        print("RSP:OK:DEL:" + str(display_idx))
+        # relist inbox with renumbered entries
+        usb_cmd_parse("INBOX")
+
     elif cmd == "HELP":
         print("RSP:HELP:BC:message - broadcast")
         print("RSP:HELP:PG:id:message - page badge")
         print("RSP:HELP:INBOX - list messages")
         print("RSP:HELP:MARKREAD - mark all read")
+        print("RSP:HELP:DEL:index - delete message")
         print("RSP:HELP:STATUS - badge info")
         print("RSP:HELP:IDLE:top:bottom - set display")
         print("RSP:HELP:RESETIDLE - normal idle")

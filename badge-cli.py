@@ -86,6 +86,9 @@ def handle_response(line):
         elif subcmd == "ALIAS":
             name = parts[3] if len(parts) > 3 else ""
             print(f"  Alias set to: {name}")
+        elif subcmd == "DEL":
+            idx = parts[3] if len(parts) > 3 else ""
+            print(f"  Deleted message [{idx}].")
         else:
             print(f"  OK: {line}")
 
@@ -130,6 +133,7 @@ Badge CLI Commands:
   broadcast <message>          Send a broadcast message (16 chars max)
   page <badge_id> <message>    Send a direct message to a badge
   inbox                        List inbox messages
+  delete <number>              Delete a message by its index number
   mark-read                    Mark all inbox messages as read
   status                       Show badge info
   idle <top> | <bottom>        Set custom idle display (use | to separate lines)
@@ -185,6 +189,11 @@ def interactive(ser):
                 send_command(ser, "INBOX")
             elif cmd == "mark-read" or cmd == "markread":
                 send_command(ser, "MARKREAD")
+            elif cmd == "delete" or cmd == "del":
+                if not arg:
+                    print("  Usage: delete <message_number>")
+                    continue
+                send_command(ser, "DEL:" + arg.strip())
             elif cmd == "status":
                 send_command(ser, "STATUS")
             elif cmd == "idle":
