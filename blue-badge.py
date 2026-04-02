@@ -1454,7 +1454,7 @@ def led_rotate():
     for i in range(6, 1, -1):
         led_set(i, led_get(i - 1))
     led_set(1, temp)
-        
+
 def led_get(led_index): # red leds low=on | pico low=off
     global LED0, LED1, LED2, LED3, LED4, LED5, LED6
     if led_index == 0: # pico led
@@ -1743,7 +1743,7 @@ def idle_init():
     bottom_blit(24, 2)
     bottom_blit(25, 3)
     bottom_blit(26, 4)
-    
+
 def idle_animate():
     global idle_scroll, you_have_got_mail
     for i in range(0, 15):
@@ -1891,8 +1891,9 @@ def compose_2_cursor_left():
     compose_cpos = temp
 
 def compose_2_cursor_right():
-    global compose_cpos
+    global compose_cpos, compose_text
     if DEBUG == True: print("compose 2 | cursor right")
+    prev_value = compose_text[compose_cpos]
     temp = compose_cpos
     temp = temp + 1
     if temp < 0:
@@ -1900,6 +1901,8 @@ def compose_2_cursor_right():
     if temp > 15:
         temp = 15
     compose_cpos = temp
+    if compose_text[compose_cpos] == 0 and prev_value != 0:
+        compose_text[compose_cpos] = prev_value
 
 ##
 #	inbox app
