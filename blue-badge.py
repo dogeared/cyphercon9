@@ -1454,7 +1454,24 @@ def led_rotate():
     for i in range(6, 1, -1):
         led_set(i, led_get(i - 1))
     led_set(1, temp)
-        
+
+def led_rotate_ccw():
+    empty = True
+    for i in range(1, 7):
+        if led_get(i) == 1:
+            empty = False
+    if empty == True:
+        led_set(1, 1)
+
+    temp = led_get(1)
+    for i in range(1, 6):
+        led_set(i, led_get(i + 1))
+    led_set(6, temp)
+
+def led_all_off():
+    for i in range(0, 7):
+        led_set(i, 0)
+
 def led_get(led_index): # red leds low=on | pico low=off
     global LED0, LED1, LED2, LED3, LED4, LED5, LED6
     if led_index == 0: # pico led
@@ -1733,9 +1750,55 @@ def mode_init(mode_index):
 idle_scroll = bytearray(16)
 you_have_got_mail = 0
 
+# idle light show state: 0=clockwise, 1=counter-clockwise, 2=off
+idle_light_state = 0
+idle_light_step = 0
+idle_light_last_ms = 0
+IDLE_LIGHT_CHASE_STEPS = 12  # number of rotate steps per direction
+IDLE_LIGHT_CHASE_DELAY = 150  # ms between chase steps
+IDLE_LIGHT_OFF_DURATION = 20000  # ms to stay off
+
+def idle_light_show_init():
+    global idle_light_state, idle_light_step, idle_light_last_ms
+    idle_light_state = 0
+    idle_light_step = 0
+    idle_light_last_ms = utime.ticks_ms()
+    led_all_off()
+    led_set(6, 1)
+
+def idle_light_show():
+    global idle_light_state, idle_light_step, idle_light_last_ms
+    now = utime.ticks_ms()
+    if idle_light_state == 0:  # clockwise chase
+        if utime.ticks_diff(now, idle_light_last_ms) >= IDLE_LIGHT_CHASE_DELAY:
+            idle_light_last_ms = now
+            led_rotate()
+            idle_light_step += 1
+            if idle_light_step >= IDLE_LIGHT_CHASE_STEPS:
+                idle_light_step = 0
+                idle_light_state = 1
+    elif idle_light_state == 1:  # counter-clockwise chase
+        if utime.ticks_diff(now, idle_light_last_ms) >= IDLE_LIGHT_CHASE_DELAY:
+            idle_light_last_ms = now
+            led_rotate_ccw()
+            idle_light_step += 1
+            if idle_light_step >= IDLE_LIGHT_CHASE_STEPS:
+                idle_light_step = 0
+                idle_light_state = 2
+                led_all_off()
+                idle_light_last_ms = now
+    elif idle_light_state == 2:  # off period
+        if utime.ticks_diff(now, idle_light_last_ms) >= IDLE_LIGHT_OFF_DURATION:
+            idle_light_state = 0
+            idle_light_step = 0
+            idle_light_last_ms = now
+            led_all_off()
+            led_set(6, 1)
+
 def idle_init():
     global idle_scroll
     idle_mail_check()
+    idle_light_show_init()
     set_top_text("")
     set_bottom_text("      Cyphercon9")
     bottom_blit(22, 0)
@@ -1743,7 +1806,7 @@ def idle_init():
     bottom_blit(24, 2)
     bottom_blit(25, 3)
     bottom_blit(26, 4)
-    
+
 def idle_animate():
     global idle_scroll, you_have_got_mail
     for i in range(0, 15):
@@ -1754,6 +1817,8 @@ def idle_animate():
     menu_blit(random.getrandbits(4), random.getrandbits(4), random.getrandbits(1))
     if you_have_got_mail > 0:
         led_rotate()
+    else:
+        idle_light_show()
 
 def idle_mail_check():
     global you_have_got_mail
@@ -1891,8 +1956,9 @@ def compose_2_cursor_left():
     compose_cpos = temp
 
 def compose_2_cursor_right():
-    global compose_cpos
+    global compose_cpos, compose_text
     if DEBUG == True: print("compose 2 | cursor right")
+    prev_value = compose_text[compose_cpos]
     temp = compose_cpos
     temp = temp + 1
     if temp < 0:
@@ -1900,6 +1966,8 @@ def compose_2_cursor_right():
     if temp > 15:
         temp = 15
     compose_cpos = temp
+    if compose_text[compose_cpos] == 0 and prev_value != 0:
+        compose_text[compose_cpos] = prev_value
 
 ##
 #	inbox app
